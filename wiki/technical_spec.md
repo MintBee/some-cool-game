@@ -27,7 +27,7 @@ Phaser bundles a physics engine, scene manager, and input system designed for ac
 
 ### Why Colyseus over raw WebSocket
 
-The game has well-defined rooms (1v1 matches), phased state transitions, and needs authoritative validation. Colyseus provides room lifecycle, delta-compressed state sync, reconnection, and room-based matchmaking out of the box. Its schema system maps naturally to the lane/card data model.
+The game has well-defined rooms (2–5 player free-for-all matches), phased state transitions, and needs authoritative validation. Colyseus provides room lifecycle, delta-compressed state sync, reconnection, and room-based matchmaking out of the box. Its schema system maps naturally to the lane/card data model.
 
 ---
 
@@ -98,7 +98,7 @@ Abstracted transport layer. Defines interfaces so the implementation can be swap
 | `server/BattleRoom`    | Thin Colyseus `Room` subclass — WebSocket transport only; delegates match lifecycle, visibility filtering, and phase timer enforcement to `shared/engine/RoomController`; schedules OS timers based on durations `RoomController` provides |
 | `messages/`            | Typed message definitions shared by all adapters                                                       |
 
-**Matchmaking:** Room-based — players within the same room are matched against each other. No global queue. The room handles pairing when enough players are present.
+**Matchmaking:** Room-based free-for-all — 2 to 5 players join the same room and compete directly. No global queue. The match starts when the host triggers it or a configurable threshold is reached.
 
 **Interface:** UI and Core Engine interact with Network only through `INetworkAdapter`. Swapping from Colyseus to P2P requires zero changes to game logic or rendering.
 
@@ -133,7 +133,9 @@ Because Core Engine is a standalone module, it runs identically whether hosted o
 
 ## 4. Data Flow
 
-### 4.1 Match Lifecycle
+### 4.1 Match Lifecycle (2-player reference)
+
+> **Note:** The sequence below illustrates the 2-player case. Multi-player (3–5) generalizes this — additional clients follow the same message pattern; lane collision and elimination sequencing across more than 2 players are open design questions (see GDD §7).
 
 ```mermaid
 sequenceDiagram

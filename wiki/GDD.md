@@ -24,9 +24,9 @@ flowchart LR
 - **Modification:** Insertion and deletion are only allowed at a specific position, shifting the sequence left or right while maintaining a contiguous array.
 
 ### 1.2 Battle Matching
-- Players enter a **match room** — an isolated 1v1 session container.
-- The room pairs the two players and manages the entire match lifecycle from start to end.
-- No global queue; pairing happens within the room when both slots are filled.
+- Players enter a **match room** — an isolated free-for-all session container holding **2 to 5 players**.
+- The room manages the entire match lifecycle from start to end.
+- No global queue; the match starts when the room is full or the host triggers it.
 
 ### 1.3 Battle Preparation
 - Each player selects **1 card from reserve** and inserts it at **any position** in their lane sequence.
@@ -39,7 +39,8 @@ flowchart LR
 ### 1.4 Battle Phase
 - Cards resolve **automatically** lane-by-lane, left to right.
 - **Reveal style:** Poker — slow, lane-by-lane card flip.
-- **100% Collision:** Because both players deploy continuously from left to right with the same deck size, cards will always clash head-to-head.
+- **100% Collision (2-player):** Because both players deploy continuously from left to right with the same deck size, cards will always clash head-to-head.
+- **Multi-player (3–5):** Lane collision and target assignment across more than 2 players are an open design question — see §7.
 
 ---
 
@@ -49,9 +50,10 @@ flowchart LR
 
 | Property      | Value                                               |
 | ------------- | --------------------------------------------------- |
+| Players       | **2 – 5** per match room                            |
 | Lanes         | **7** (Maximum sequence length)                     |
 | HP            | 30 (shared pool per player)                         |
-| Win condition | Reduce enemy HP to 0                                |
+| Win condition | Last player standing (all others at 0 HP)           |
 | Double KO     | Both reach 0 simultaneously → **no trophy awarded** |
 | Deck size     | **9**                                               |
 | Deploy        | **6** (Prep) + **1** (Battle Prep) = **7 max**      |
@@ -166,15 +168,17 @@ PHASE 3 — REINFORCEMENT (Round 10+)
 
 ## 6. Match Room
 
-A match room is the domain container for a single 1v1 game session. It holds exactly two players from match start to match end and owns all state transitions, visibility enforcement, and timing rules for that session. Rooms are fully isolated — no player can observe or interact with another room.
+A match room is the domain container for a single free-for-all game session. It holds **2 to 5 players** from match start to match end and owns all state transitions, visibility enforcement, and timing rules for that session. Rooms are fully isolated — no player can observe or interact with another room.
 
 ### 6.1 Room Lifecycle
 
 ```mermaid
 stateDiagram-v2
     [*] --> Waiting : first player joins
-    Waiting --> Active : second player joins
-    Active --> Ended : one player reaches 0 HP
+    Waiting --> Waiting : player joins (up to 5)
+    Waiting --> Active : host starts match
+    Active --> Active : player eliminated (HP = 0)
+    Active --> Ended : last player standing
     Active --> Ended : player forfeits
     Active --> Ended : disconnect grace period expires
     Ended --> [*]
@@ -200,18 +204,26 @@ Each phase has a server-enforced time limit. When the timer expires the room aut
 
 ### 6.4 Victory & Room End
 
-The room ends as soon as any end condition is met:
+The room ends when only one player remains active. Players are eliminated one by one as their HP reaches 0; the last standing wins.
 
-| Condition                              | Trophy outcome                   |
-| -------------------------------------- | -------------------------------- |
-| One player's HP reaches 0              | Winner earns a trophy            |
-| Both players reach 0 simultaneously   | No trophy awarded (§2.1 Double KO) |
-| A player voluntarily forfeits          | No trophy awarded                |
-| Disconnect grace period expires        | Opponent earns a trophy          |
+| Condition                              | Trophy outcome                        |
+| -------------------------------------- | ------------------------------------- |
+| Last player standing                   | Winner earns a trophy                 |
+| Double KO (simultaneous)               | No trophy awarded (§2.1 Double KO)    |
+| A player voluntarily forfeits          | No trophy awarded to that player      |
+| Disconnect grace period expires        | Eliminated; remaining players continue |
 
 ---
 
 ## 7. Open Design Questions (TODO)
+
+### Multi-player (FFA) Format
+- [ ] Lane collision with 3–5 players: round-robin per lane, random pairing per lane, or simultaneous all-vs-all?
+- [ ] HP damage targeting: does a lane winner deal damage to all opponents or only the matched one?
+- [ ] Elimination mid-round: if a player reaches 0 HP during a battle phase, do their remaining lanes resolve?
+- [ ] Visibility with multiple opponents: does each player see each opponent's zones independently, or is there a shared "table" view?
+- [ ] Turn order: is the preparation phase simultaneous for all players, or sequential?
+- [ ] Room start trigger: first-in host, countdown timer, or minimum player threshold?
 
 ### Card Design (Refinement)
 - [ ] Upgrade paths (what improves per tier? stats only confirmed)
