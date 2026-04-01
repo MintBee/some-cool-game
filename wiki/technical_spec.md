@@ -15,7 +15,7 @@
 | **UI Overlay**     | Preact + HTM            | Thin reactive layer for HUD, menus, lobby — renders to DOM above the Pixi canvas |
 | **Networking**     | Colyseus 0.15           | Authoritative game rooms, schema-based state sync over WebSocket           |
 | **Server**         | Node.js 20 + Colyseus   | Colyseus runs on Node; no separate HTTP framework needed for game logic    |
-| **Monorepo**       | Turborepo + pnpm        | Three packages: `client`, `server`, `shared` with single `tsconfig` base  |
+| **Monorepo**       | Turborepo + pnpm        | Three sources: `client`, `server`, `shared` with single `tsconfig` base  |
 | **Build (client)** | Vite 6                  | Fast HMR, native TS, trivial Pixi asset pipeline                          |
 | **Build (server)** | tsx (dev) / tsup (prod) | Fast dev reload; single-file production bundle                             |
 | **Testing**        | Vitest + Playwright     | Unit tests for shared game logic; E2E for full client-server flows         |
@@ -37,18 +37,23 @@ Three core modules with clean interfaces between them. Any layer can be swapped 
 
 ### 2.1 Module Diagram
 
-```
-┌──────────┐    player actions     ┌──────────────────┐    INetworkAdapter    ┌─────────────┐
-│          │ ───────────────────►  │                  │ ──────────────────►  │             │
-│    UI    │                       │  Core Game Engine │                       │   Network   │
-│          │ ◄───────────────────  │                  │ ◄──────────────────  │             │
-└──────────┘    GameState updates  └──────────────────┘    state sync         └─────────────┘
+```mermaid
+flowchart LR
+    UI["UI\nPixiJS + Preact"]
+    Core["Core Game Engine\nshared/"]
+    Net["Network\nINetworkAdapter"]
+
+    UI -- "player actions" --> Core
+    Core -- "GameState updates" --> UI
+    Core -- "INetworkAdapter" --> Net
+    Net -- "state sync" --> Core
 ```
 
 - **UI → Core:** "Player wants to deploy card X at slot 3" (intent)
 - **Core → Network:** "Validated action, broadcast to opponent" (via adapter)
 - **Network → Core:** "Opponent deployed card Y" (incoming action)
 - **Core → UI:** "State updated, re-render" (new GameState)
+- **Core (RoomController):** Owned by Core Engine — match lifecycle, per-player visibility filtering, and phase timer policy are pure domain logic; the Network layer schedules OS timers and sends filtered state based on values returned by `RoomController`
 
 ### 2.2 Module 1: UI
 
@@ -75,10 +80,11 @@ Pure game logic — deterministic, platform-agnostic, no I/O. This is the shared
 | `rules/lane`        | `resolveLane(cardA, cardB, context): LaneResult` — priority ordering, disrupt, shields, buffs, nukes          |
 | `rules/economy`     | Phase transition logic — which picks/discards/upgrades are legal given the current round                      |
 | `rules/deploy`      | Zone constraints (Frontier before Shadow), contiguous placement, Battle Prep insertion shifting                |
-| `engine/PhaseManager` | State machine: BUILDING → PREP → MATCHING → BATTLE_PREP → BATTLE → RESULT                                  |
-| `engine/Validator`  | Validates any player action against current state — anti-cheat layer when run server-side                     |
+| `engine/PhaseManager`    | State machine: BUILDING → PREP → MATCHING → BATTLE_PREP → BATTLE → RESULT                                                                                                                                                     |
+| `engine/Validator`       | Validates any player action against current state — anti-cheat layer when run server-side                                                                                                                                     |
+| `engine/RoomController`  | Match lifecycle (pair players, start, end), visibility filtering per player, phase timer policy (durations and auto-advance action); returns filtered `PlayerView` objects and emits `RoomEvent` values — no I/O, fully testable |
 
-**Interface:** Exposes `applyAction(state, action): GameState` and `resolveLane()`. No side effects, fully testable.
+**Interface:** Exposes `applyAction(state, action): GameState`, `resolveLane()`, and `RoomController` (instantiated once per match). No side effects, fully testable.
 
 ### 2.4 Module 3: Network
 
@@ -89,7 +95,7 @@ Abstracted transport layer. Defines interfaces so the implementation can be swap
 | `interface/`           | `INetworkAdapter` — `connect()`, `sendAction()`, `onStateUpdate()`, `onLaneReveal()`, etc.            |
 | `adapters/colyseus/`   | Central server adapter — authoritative Colyseus rooms, schema sync, room-based matchmaking             |
 | `adapters/p2p/`        | (Future) P2P adapter — WebRTC DataChannels, one peer acts as host running the Core Engine              |
-| `server/BattleRoom`    | Colyseus `Room` subclass — match lifecycle, visibility filtering, phase timers                         |
+| `server/BattleRoom`    | Thin Colyseus `Room` subclass — WebSocket transport only; delegates match lifecycle, visibility filtering, and phase timer enforcement to `shared/engine/RoomController`; schedules OS timers based on durations `RoomController` provides |
 | `messages/`            | Typed message definitions shared by all adapters                                                       |
 
 **Matchmaking:** Room-based — players within the same room are matched against each other. No global queue. The room handles pairing when enough players are present.
@@ -102,15 +108,15 @@ Abstracted transport layer. Defines interfaces so the implementation can be swap
 
 The server (or host peer in P2P) is the single source of truth. The client is a view layer that sends intents and renders confirmed state.
 
-### Server / Host owns
+### Server / Host owns (via RoomController + BattleRoom)
 
 | Concern                | Detail                                                             |
 | ---------------------- | ------------------------------------------------------------------ |
 | Card resolution        | All lane outcomes computed via `shared/rules/lane`                 |
-| Visibility enforcement | Hidden card data never sent to opponent until reveal time          |
+| Visibility enforcement | `RoomController.getPlayerView(state, playerId)` computes filtered state; `BattleRoom` serializes and transmits it |
 | Deploy validation      | Every placement checked against zone rules and deck contents       |
 | Economy validation     | Draft picks, discards, upgrades validated against phase rules      |
-| Timers                 | Phase duration enforced; auto-advance on timeout                   |
+| Timers                 | Phase duration policy defined in `RoomController` (returns duration and fallback action); `BattleRoom` schedules the OS timer and calls `RoomController.handleTimeout()` on expiry |
 | Randomness             | Card draft pool (3 random from 25) generated server-side           |
 
 ### Client owns
@@ -129,42 +135,45 @@ Because Core Engine is a standalone module, it runs identically whether hosted o
 
 ### 4.1 Match Lifecycle
 
-```
-Client A              Server / Host          Client B
-   │                       │                      │
-   ├──joinRoom()──────────►│◄────joinRoom()───────┤
-   │                       │                      │
-   │               [room pairs A + B]             │
-   │                       │                      │
-   │◄──matchStarted───────►│◄────matchStarted────►│
-   │                       │                      │
-   │    ═══ BUILDING PHASE (rounds 1-3) ═══       │
-   │                       │                      │
-   │◄──draftChoices(3)─────│──draftChoices(3)────►│
-   ├──pickCard(id)────────►│◄────pickCard(id)─────┤
-   │◄──deckUpdate──────────│──deckUpdate─────────►│
-   │       ... repeat per pick ...                │
-   │                       │                      │
-   │    ═══ PREPARATION PHASE ═══                 │
-   │                       │                      │
-   ├──deployCard(slot)────►│  (validate)          │
-   │◄──stateSync───────────│                      │
-   │                       │──opponentPartial────►│
-   │                       │  (frontier = full,    │
-   │                       │   shadow = type only,  │
-   │                       │   battlePrep = hidden) │
-   ├──ready()─────────────►│◄────ready()──────────┤
-   │                       │                      │
-   │    ═══ BATTLE PHASE (lane-by-lane) ═══       │
-   │                       │                      │
-   │               [resolve lane 1]               │
-   │◄──laneReveal(1)──────│──laneReveal(1)───────►│
-   │  {cardA, cardB,       │                      │
-   │   result, hpDelta}    │                      │
-   │       ... lanes 2-7 ...                      │
-   │                       │                      │
-   │◄──battleResult────────│──battleResult────────►│
-   │  {winner, trophies}   │                      │
+```mermaid
+sequenceDiagram
+    participant A as Client A
+    participant S as Server / Host
+    participant B as Client B
+
+    A->>S: joinRoom()
+    B->>S: joinRoom()
+    Note over S: room pairs A + B
+    S->>A: matchStarted
+    S->>B: matchStarted
+
+    Note over A,B: BUILDING PHASE (rounds 1-3)
+    S->>A: draftChoices(3)
+    S->>B: draftChoices(3)
+    A->>S: pickCard(id)
+    B->>S: pickCard(id)
+    S->>A: deckUpdate
+    S->>B: deckUpdate
+    Note over A,B: repeat per pick
+
+    Note over A,B: PREPARATION PHASE
+    A->>S: deployCard(slot)
+    Note over S: validate
+    S->>A: stateSync
+    S->>B: opponentPartial
+    Note over S,B: frontier=full, shadow=type only, battlePrep=hidden
+    A->>S: ready()
+    B->>S: ready()
+
+    Note over A,B: BATTLE PHASE (lane-by-lane)
+    Note over S: resolve lane 1
+    S->>A: laneReveal(1)
+    S->>B: laneReveal(1)
+    Note over A: cardA, cardB, result, hpDelta
+    Note over A,B: lanes 2-7...
+    S->>A: battleResult
+    S->>B: battleResult
+    Note over A: winner, trophies
 ```
 
 ### 4.2 Key Message Types
@@ -187,13 +196,21 @@ Client A              Server / Host          Client B
 
 The server maintains full game state but **filters outgoing data per player**:
 
-```
-Server full state
-  ├─► Player A view: own cards (full) + opponent Frontier (full)
-  │                                    + opponent Shadow (type only)
-  │                                    + opponent Battle Prep (NOTHING)
-  │
-  └─► Player B view: (mirror of above)
+```mermaid
+flowchart TD
+    FS["Server full state"]
+    FS --> VA["Player A view"]
+    FS --> VB["Player B view"]
+
+    VA --> A1["Own cards — full"]
+    VA --> A2["Opponent Frontier — full"]
+    VA --> A3["Opponent Shadow — type only"]
+    VA --> A4["Opponent Battle Prep — hidden"]
+
+    VB --> B1["Own cards — full"]
+    VB --> B2["Opponent Frontier — full"]
+    VB --> B3["Opponent Shadow — type only"]
+    VB --> B4["Opponent Battle Prep — hidden"]
 ```
 
 Opponent card IDs and stats in Shadow/BattlePrep zones are **never serialized to the wire**. This is the primary anti-cheat boundary.
@@ -202,29 +219,34 @@ Opponent card IDs and stats in Shadow/BattlePrep zones are **never serialized to
 
 ## 5. State Schema
 
-```
-GameState
-├── phase: Phase (BUILDING | PREP | BATTLE_PREP | BATTLE | RESULT)
-├── round: number
-├── players: Map<string, PlayerState>
-│   └── PlayerState
-│       ├── hp: number
-│       ├── trophies: number
-│       ├── deck: Card[9]            ← full deck (server-only for opponent)
-│       ├── deployed: Card[7]        ← ordered lane assignments
-│       ├── zones
-│       │   ├── frontier: [0, 1, 2]
-│       │   ├── shadow: [3, 4, 5]
-│       │   └── battlePrep: [6]
-│       └── reserve: Card[]
-├── lanes: LaneState[7]
-│   └── LaneState
-│       ├── resolved: boolean
-│       ├── cardA: CardId | null
-│       ├── cardB: CardId | null
-│       └── result: LaneResult | null
-└── timers
-    └── phaseEnd: timestamp
+```mermaid
+graph TD
+    GS["GameState"]
+    GS --> phase["phase: Phase\nBUILDING | PREP | BATTLE_PREP | BATTLE | RESULT"]
+    GS --> round["round: number"]
+    GS --> players["players: Map&lt;string, PlayerState&gt;"]
+    GS --> lanes["lanes: LaneState[7]"]
+    GS --> timers["timers"]
+
+    players --> PS["PlayerState"]
+    PS --> hp["hp: number"]
+    PS --> trophies["trophies: number"]
+    PS --> deck["deck: Card[9]\nfull deck — server-only for opponent"]
+    PS --> deployed["deployed: Card[7]\nordered lane assignments"]
+    PS --> zones["zones"]
+    PS --> reserve["reserve: Card[]"]
+
+    zones --> frontier["frontier: [0, 1, 2]"]
+    zones --> shadow["shadow: [3, 4, 5]"]
+    zones --> battlePrep["battlePrep: [6]"]
+
+    lanes --> LS["LaneState"]
+    LS --> resolved["resolved: boolean"]
+    LS --> cardA["cardA: CardId | null"]
+    LS --> cardB["cardB: CardId | null"]
+    LS --> result["result: LaneResult | null"]
+
+    timers --> phaseEnd["phaseEnd: timestamp"]
 ```
 
 ---
@@ -235,7 +257,7 @@ GameState
 
 ```
 some-cool-game/
-├── packages/
+├── sources/
 │   ├── shared/      ← Module 2 (Core Game Engine) — pure TS, no deps
 │   ├── server/      ← Module 3 server-side (Colyseus adapter + BattleRoom)
 │   └── client/      ← Module 1 (UI) + Module 3 client-side (network adapter)
@@ -248,7 +270,7 @@ some-cool-game/
 
 | Command      | Effect                                                          |
 | ------------ | --------------------------------------------------------------- |
-| `pnpm dev`   | Starts all three packages (shared watch + server + client)      |
+| `pnpm dev`   | Starts all three sources (shared watch + server + client)       |
 | `pnpm test`  | Runs Vitest across all workspaces                               |
 | `pnpm build` | Production build: shared → server bundle + client static assets |
 
