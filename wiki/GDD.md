@@ -6,10 +6,14 @@
 
 ## 1. Game Flow
 
-┌──────────────┐    ┌────────────────┐    ┌──────────────────┐    ┌──────────────┐
-│  Preparation │ →  │ Battle Matching │ →  │ Battle Preparation│ →  │ Battle Phase │
-│    Phase     │    │   (matchmaker)  │    │   (+1 card each)  │    │ (auto-resolve)│
-└──────────────┘    └────────────────┘    └──────────────────┘    └──────────────┘
+```mermaid
+flowchart LR
+    A["Preparation Phase"]
+    B["Battle Matching\n(matchmaker)"]
+    C["Battle Preparation\n(+1 card each)"]
+    D["Battle Phase\n(auto-resolve)"]
+    A --> B --> C --> D
+```
 
 ### 1.1 Preparation Phase
 - **Deploy** cards continuously from left to right (no gaps allowed).
@@ -20,7 +24,9 @@
 - **Modification:** Insertion and deletion are only allowed at a specific position, shifting the sequence left or right while maintaining a contiguous array.
 
 ### 1.2 Battle Matching
-- Players are matched via a matchmaking algorithm.
+- Players enter a **match room** — an isolated 1v1 session container.
+- The room pairs the two players and manages the entire match lifecycle from start to end.
+- No global queue; pairing happens within the room when both slots are filled.
 
 ### 1.3 Battle Preparation
 - Each player selects **1 card from reserve** and inserts it at **any position** in their lane sequence.
@@ -63,16 +69,14 @@ For each lane (left to right):
 
 ### 2.3 Information Zones — Three-Tier Visibility
 
-  FRONTIER          SHADOW              BATTLE PREP
-  ┌──────────┐      ┌──────────┐        ┌──────────┐
-  │ Full ID  │      │ Type     │        │ ???      │
-  │ + Lane   │      │ Label    │        │          │
-  │          │      │ only     │        │ Zero     │
-  │ KNOWN    │      │ PARTIAL  │        │ info     │
-  └──────────┘      └──────────┘        └──────────┘
-  Left side         Right side          Inserted
+```mermaid
+flowchart LR
+    F["FRONTIER\nLeft side\n─────────\nFull card ID\n+ lane\n─────────\nKNOWN"]
+    S["SHADOW\nRight side\n─────────\nType label\nonly\n─────────\nPARTIAL"]
+    B["BATTLE PREP\nInserted\n─────────\n???\n─────────\nHIDDEN"]
 
-  ◄── more transparent          more hidden ──►
+    F -. "more hidden ──►" .-> S -. "more hidden ──►" .-> B
+```
 
 | Zone            | Count | Opponent Sees                                | Hidden                      |
 | --------------- | ----- | -------------------------------------------- | --------------------------- |
@@ -160,7 +164,54 @@ PHASE 3 — REINFORCEMENT (Round 10+)
 
 ---
 
-## 6. Open Design Questions (TODO)
+## 6. Match Room
+
+A match room is the domain container for a single 1v1 game session. It holds exactly two players from match start to match end and owns all state transitions, visibility enforcement, and timing rules for that session. Rooms are fully isolated — no player can observe or interact with another room.
+
+### 6.1 Room Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting : first player joins
+    Waiting --> Active : second player joins
+    Active --> Ended : one player reaches 0 HP
+    Active --> Ended : player forfeits
+    Active --> Ended : disconnect grace period expires
+    Ended --> [*]
+```
+
+The room is ephemeral — all game state is discarded when the room ends. Trophy records are the only persistent output.
+
+### 6.2 Phase Timers
+
+Each phase has a server-enforced time limit. When the timer expires the room auto-advances without waiting for player input.
+
+| Phase               | Timer | On Expiry                                               |
+| ------------------- | ----- | ------------------------------------------------------- |
+| Card pick (draft)   | 20s   | Server auto-picks a random card from the 3 offered      |
+| Preparation         | 30s   | Server submits ready; unoccupied slots remain empty     |
+| Battle Preparation  | 15s   | Server skips BP insertion for that player               |
+
+### 6.3 Disconnection & Forfeit
+
+- **Grace period:** 60 seconds. The opponent sees a "Reconnecting…" indicator during this window. The room clock keeps running.
+- **Grace expiry:** The disconnected player forfeits; the opponent wins the match.
+- **Voluntary forfeit:** A player may forfeit at any time. No trophy is awarded to either side.
+
+### 6.4 Victory & Room End
+
+The room ends as soon as any end condition is met:
+
+| Condition                              | Trophy outcome                   |
+| -------------------------------------- | -------------------------------- |
+| One player's HP reaches 0              | Winner earns a trophy            |
+| Both players reach 0 simultaneously   | No trophy awarded (§2.1 Double KO) |
+| A player voluntarily forfeits          | No trophy awarded                |
+| Disconnect grace period expires        | Opponent earns a trophy          |
+
+---
+
+## 7. Open Design Questions (TODO)
 
 ### Card Design (Refinement)
 - [ ] Upgrade paths (what improves per tier? stats only confirmed)
