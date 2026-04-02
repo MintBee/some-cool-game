@@ -27,7 +27,7 @@ Phaser bundles a physics engine, scene manager, and input system designed for ac
 
 ### Why Colyseus over raw WebSocket
 
-The game has well-defined rooms (1v1 matches), phased state transitions, and needs authoritative validation. Colyseus provides room lifecycle, delta-compressed state sync, reconnection, and room-based matchmaking out of the box. Its schema system maps naturally to the lane/card data model.
+The game has well-defined rooms (1v1 matches), phased state transitions, and needs authoritative validation. Colyseus provides room lifecycle, delta-compressed state sync, reconnection, and room pairing out of the box. Its schema system maps naturally to the lane/card data model.
 
 ---
 
@@ -76,9 +76,10 @@ Pure game logic — deterministic, platform-agnostic, no I/O. This is the shared
 | `rules/economy`     | Phase transition logic — which picks/discards/upgrades are legal given the current round                      |
 | `rules/deploy`      | Zone constraints (Frontier before Shadow), contiguous placement, Battle Prep insertion shifting                |
 | `engine/PhaseManager` | State machine: BUILDING → PREP → MATCHING → BATTLE_PREP → BATTLE → RESULT                                  |
+| `engine/MatchManager`  | Multi-battle match envelope — round-robin pairing schedule, win/trophy tracking, lobby-wait enforcement, roster-lock, and match-over condition (first to 10 wins) |
 | `engine/Validator`  | Validates any player action against current state — anti-cheat layer when run server-side                     |
 
-**Interface:** Exposes `applyAction(state, action): GameState` and `resolveLane()`. No side effects, fully testable.
+**Interface:** Exposes `applyAction(state, action): GameState`, `resolveLane()`, and `applyBattleResult(matchState, result): MatchState`. No side effects, fully testable.
 
 ### 2.4 Module 3: Network
 
@@ -87,12 +88,16 @@ Abstracted transport layer. Defines interfaces so the implementation can be swap
 | Sub-module             | Responsibility                                                                                        |
 | ---------------------- | ----------------------------------------------------------------------------------------------------- |
 | `interface/`           | `INetworkAdapter` — `connect()`, `sendAction()`, `onStateUpdate()`, `onLaneReveal()`, etc.            |
-| `adapters/colyseus/`   | Central server adapter — authoritative Colyseus rooms, schema sync, room-based matchmaking             |
+| `adapters/colyseus/`   | Central server adapter — authoritative Colyseus rooms, schema sync, room pairing                       |
 | `adapters/p2p/`        | (Future) P2P adapter — WebRTC DataChannels, one peer acts as host running the Core Engine              |
-| `server/BattleRoom`    | Colyseus `Room` subclass — match lifecycle, visibility filtering, phase timers                         |
+| `server/BattleRoom`    | Colyseus `Room` subclass — visibility filtering, phase timers, routes actions to Core Engine; delegates match lifecycle to `MatchManager` |
 | `messages/`            | Typed message definitions shared by all adapters                                                       |
 
-**Matchmaking:** Room-based — players within the same room are matched against each other. No global queue. The room handles pairing when enough players are present.
+**Matchmaking:** Rooms support **2, 4, or 6 players only** (even numbers; odd counts are rejected because they cannot form complete 1:1 pairings). All matches within a room are strictly **1:1 (one player vs. one player)**. A 4-player room runs 2 simultaneous 1:1 matches; a 6-player room runs 3.
+
+There is no global queue — players join a named room directly. **The game does not start until all seats are filled**; early arrivals wait in a lobby state and no game actions are accepted until the room reaches capacity. **The player roster is locked at game start** — no joins or substitutions are permitted once the match is in progress.
+
+Within a room, pairing follows a **round-robin schedule** so that every player faces every other player in turn. `BattleRoom` handles transport-level seat assignment only; all match lifecycle concerns (round-robin scheduling, win tracking, lobby-wait, roster-lock, match-over detection) are the responsibility of `engine/MatchManager` in the Core module.
 
 **Interface:** UI and Core Engine interact with Network only through `INetworkAdapter`. Swapping from Colyseus to P2P requires zero changes to game logic or rendering.
 
@@ -167,6 +172,8 @@ Client A              Server / Host          Client B
    │  {winner, trophies}   │                      │
 ```
 
+The diagram above shows a single battle. A full match consists of repeated battles until one player accumulates 10 wins; between battles `MatchManager` resets `GameState` while preserving `MatchState.wins`. The match does not begin until `MatchState.locked` is true (all seats filled).
+
 ### 4.2 Key Message Types
 
 | Direction       | Message            | Payload                                                        |
@@ -203,7 +210,16 @@ Opponent card IDs and stats in Shadow/BattlePrep zones are **never serialized to
 ## 5. State Schema
 
 ```
-GameState
+MatchState                           ← multi-battle envelope (managed by MatchManager)
+├── matchId: string
+├── players: [string, string]        ← exactly two player IDs (1:1 invariant); immutable once locked
+├── locked: boolean                  ← false = lobby (no actions accepted); true = match in progress
+├── wins: Map<string, number>        ← battle wins per player (0–10)
+├── matchOver: boolean               ← true when either player reaches 10 wins
+├── winner: string | null            ← playerId of match winner, null if ongoing
+└── currentBattle: GameState | null  ← null while in lobby; resets each battle
+
+GameState                            ← per-battle state (nested inside MatchState)
 ├── phase: Phase (BUILDING | PREP | BATTLE_PREP | BATTLE | RESULT)
 ├── round: number
 ├── players: Map<string, PlayerState>
@@ -226,6 +242,8 @@ GameState
 └── timers
     └── phaseEnd: timestamp
 ```
+
+> `MatchState` is the long-lived envelope. While `locked` is `false` the room is in lobby state — no game actions are accepted. Once all seats fill, `locked` becomes `true` and the `players` list is immutable for the rest of the match. `GameState` resets at the start of each new battle. The `trophies` field in `PlayerState` mirrors `MatchState.wins` for use in per-battle UI and `battleResult` messages.
 
 ---
 
