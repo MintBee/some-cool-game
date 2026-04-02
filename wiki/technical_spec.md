@@ -37,12 +37,15 @@ Three core modules with clean interfaces between them. Any layer can be swapped 
 
 ### 2.1 Module Diagram
 
-```
-┌──────────┐    player actions     ┌──────────────────┐    INetworkAdapter    ┌─────────────┐
-│          │ ───────────────────►  │                  │ ──────────────────►  │             │
-│    UI    │                       │  Core Game Engine │                       │   Network   │
-│          │ ◄───────────────────  │                  │ ◄──────────────────  │             │
-└──────────┘    GameState updates  └──────────────────┘    state sync         └─────────────┘
+```mermaid
+flowchart LR
+    UI["UI"]
+    Core["Core Game Engine"]
+    Net["Network"]
+    UI -->|"player actions"| Core
+    Core -->|"GameState updates"| UI
+    Core -->|"INetworkAdapter"| Net
+    Net -->|"state sync"| Core
 ```
 
 - **UI → Core:** "Player wants to deploy card X at slot 3" (intent)
@@ -134,42 +137,50 @@ Because Core Engine is a standalone module, it runs identically whether hosted o
 
 ### 4.1 Match Lifecycle
 
-```
-Client A              Server / Host          Client B
-   │                       │                      │
-   ├──joinRoom()──────────►│◄────joinRoom()───────┤
-   │                       │                      │
-   │               [room pairs A + B]             │
-   │                       │                      │
-   │◄──matchStarted───────►│◄────matchStarted────►│
-   │                       │                      │
-   │    ═══ BUILDING PHASE (rounds 1-3) ═══       │
-   │                       │                      │
-   │◄──draftChoices(3)─────│──draftChoices(3)────►│
-   ├──pickCard(id)────────►│◄────pickCard(id)─────┤
-   │◄──deckUpdate──────────│──deckUpdate─────────►│
-   │       ... repeat per pick ...                │
-   │                       │                      │
-   │    ═══ PREPARATION PHASE ═══                 │
-   │                       │                      │
-   ├──deployCard(slot)────►│  (validate)          │
-   │◄──stateSync───────────│                      │
-   │                       │──opponentPartial────►│
-   │                       │  (frontier = full,    │
-   │                       │   shadow = type only,  │
-   │                       │   battlePrep = hidden) │
-   ├──ready()─────────────►│◄────ready()──────────┤
-   │                       │                      │
-   │    ═══ BATTLE PHASE (lane-by-lane) ═══       │
-   │                       │                      │
-   │               [resolve lane 1]               │
-   │◄──laneReveal(1)──────│──laneReveal(1)───────►│
-   │  {cardA, cardB,       │                      │
-   │   result, hpDelta}    │                      │
-   │       ... lanes 2-7 ...                      │
-   │                       │                      │
-   │◄──battleResult────────│──battleResult────────►│
-   │  {winner, trophies}   │                      │
+```mermaid
+sequenceDiagram
+    participant A as Client A
+    participant S as Server / Host
+    participant B as Client B
+
+    A->>S: joinRoom()
+    B->>S: joinRoom()
+    Note over S: room pairs A + B
+    S->>A: matchStarted
+    S->>B: matchStarted
+
+    rect rgb(220, 220, 245)
+        Note over A,B: BUILDING PHASE (rounds 1-3)
+        S->>A: draftChoices(3)
+        S->>B: draftChoices(3)
+        A->>S: pickCard(id)
+        B->>S: pickCard(id)
+        S->>A: deckUpdate
+        S->>B: deckUpdate
+        Note over A,B: ... repeat per pick ...
+    end
+
+    rect rgb(220, 245, 220)
+        Note over A,B: PREPARATION PHASE
+        A->>S: deployCard(slot)
+        S->>A: stateSync
+        S->>B: opponentPartial
+        Note over B: frontier = full,<br/>shadow = type only,<br/>battlePrep = hidden
+        A->>S: ready()
+        B->>S: ready()
+    end
+
+    rect rgb(245, 220, 220)
+        Note over A,B: BATTLE PHASE (lane-by-lane)
+        Note over S: resolve lane 1
+        S->>A: laneReveal(1)
+        S->>B: laneReveal(1)
+        Note over A: {cardA, cardB, result, hpDelta}
+        Note over A,B: ... lanes 2-7 ...
+        S->>A: battleResult
+        S->>B: battleResult
+        Note over A: {winner, trophies}
+    end
 ```
 
 The diagram above shows a single battle. A full match consists of repeated battles until one player accumulates 10 wins; between battles `MatchManager` resets `GameState` while preserving `MatchState.wins`. The match does not begin until `MatchState.locked` is true (all seats filled).
@@ -194,13 +205,13 @@ The diagram above shows a single battle. A full match consists of repeated battl
 
 The server maintains full game state but **filters outgoing data per player**:
 
-```
-Server full state
-  ├─► Player A view: own cards (full) + opponent Frontier (full)
-  │                                    + opponent Shadow (type only)
-  │                                    + opponent Battle Prep (NOTHING)
-  │
-  └─► Player B view: (mirror of above)
+```mermaid
+flowchart TD
+    S["Server full state"]
+    A["Player A view:\nown cards (full)\n+ opponent Frontier (full)\n+ opponent Shadow (type only)\n+ opponent Battle Prep (NOTHING)"]
+    B["Player B view:\n(mirror of above)"]
+    S -->|"filter"| A
+    S -->|"filter"| B
 ```
 
 Opponent card IDs and stats in Shadow/BattlePrep zones are **never serialized to the wire**. This is the primary anti-cheat boundary.
@@ -209,38 +220,47 @@ Opponent card IDs and stats in Shadow/BattlePrep zones are **never serialized to
 
 ## 5. State Schema
 
-```
-MatchState                           ← multi-battle envelope (managed by MatchManager)
-├── matchId: string
-├── players: [string, string]        ← exactly two player IDs (1:1 invariant); immutable once locked
-├── locked: boolean                  ← false = lobby (no actions accepted); true = match in progress
-├── wins: Map<string, number>        ← battle wins per player (0–10)
-├── matchOver: boolean               ← true when either player reaches 10 wins
-├── winner: string | null            ← playerId of match winner, null if ongoing
-└── currentBattle: GameState | null  ← null while in lobby; resets each battle
-
-GameState                            ← per-battle state (nested inside MatchState)
-├── phase: Phase (BUILDING | PREP | BATTLE_PREP | BATTLE | RESULT)
-├── round: number
-├── players: Map<string, PlayerState>
-│   └── PlayerState
-│       ├── hp: number
-│       ├── trophies: number
-│       ├── deck: Card[9]            ← full deck (server-only for opponent)
-│       ├── deployed: Card[7]        ← ordered lane assignments
-│       ├── zones
-│       │   ├── frontier: [0, 1, 2]
-│       │   ├── shadow: [3, 4, 5]
-│       │   └── battlePrep: [6]
-│       └── reserve: Card[]
-├── lanes: LaneState[7]
-│   └── LaneState
-│       ├── resolved: boolean
-│       ├── cardA: CardId | null
-│       ├── cardB: CardId | null
-│       └── result: LaneResult | null
-└── timers
-    └── phaseEnd: timestamp
+```mermaid
+classDiagram
+    class MatchState {
+        +matchId: string
+        +players: string[2]
+        +locked: boolean
+        +wins: Map~string, number~
+        +matchOver: boolean
+        +winner: string | null
+        +currentBattle: GameState | null
+    }
+    class GameState {
+        +phase: Phase
+        +round: number
+    }
+    class PlayerState {
+        +hp: number
+        +trophies: number
+        +deck: Card[9]
+        +deployed: Card[7]
+        +reserve: Card[]
+    }
+    class Zones {
+        +frontier: int[3]
+        +shadow: int[3]
+        +battlePrep: int[1]
+    }
+    class LaneState {
+        +resolved: boolean
+        +cardA: CardId | null
+        +cardB: CardId | null
+        +result: LaneResult | null
+    }
+    class Timers {
+        +phaseEnd: timestamp
+    }
+    MatchState "1" *-- "0..1" GameState : currentBattle
+    GameState "1" *-- "2" PlayerState : players
+    PlayerState "1" *-- "1" Zones : zones
+    GameState "1" *-- "7" LaneState : lanes
+    GameState "1" *-- "1" Timers : timers
 ```
 
 > `MatchState` is the long-lived envelope. While `locked` is `false` the room is in lobby state — no game actions are accepted. Once all seats fill, `locked` becomes `true` and the `players` list is immutable for the rest of the match. `GameState` resets at the start of each new battle. The `trophies` field in `PlayerState` mirrors `MatchState.wins` for use in per-battle UI and `battleResult` messages.
@@ -251,15 +271,23 @@ GameState                            ← per-battle state (nested inside MatchSt
 
 ### Directory Layout
 
-```
-some-cool-game/
-├── packages/
-│   ├── shared/      ← Module 2 (Core Game Engine) — pure TS, no deps
-│   ├── server/      ← Module 3 server-side (Colyseus adapter + BattleRoom)
-│   └── client/      ← Module 1 (UI) + Module 3 client-side (network adapter)
-├── turbo.json       ← pipeline: shared → server/client in parallel
-├── package.json     ← workspace root
-└── wiki/            ← design & technical docs
+```mermaid
+flowchart TD
+    root["some-cool-game/"]
+    packages["packages/"]
+    shared["shared/\n← Module 2: Core Game Engine\npure TS, no deps"]
+    server["server/\n← Module 3 server-side\nColyseus adapter + BattleRoom"]
+    client["client/\n← Module 1: UI\n+ Module 3 client-side network adapter"]
+    turbo["turbo.json\n← pipeline: shared → server/client in parallel"]
+    pkgjson["package.json\n← workspace root"]
+    wiki["wiki/\n← design & technical docs"]
+    root --> packages
+    root --> turbo
+    root --> pkgjson
+    root --> wiki
+    packages --> shared
+    packages --> server
+    packages --> client
 ```
 
 ### Dev Commands

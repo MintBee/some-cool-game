@@ -4,17 +4,16 @@
 
 ## 1. Card Anatomy
 
-┌─────────────────────────┐
-│  CARD NAME              │
-│  Type: Strike (P3)      │
-│  ─────────────────────  │
-│  Ability: [unique text] │
-│  ─────────────────────  │
-│  Stats:                 │
-│    T1: base             │
-│    T2: ~1.3–1.5x        │
-│    T3: ~1.6–2.0x        │
-└─────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Card["Card Template"]
+        direction TB
+        N["CARD NAME\nType: Strike (P3)"]
+        A["Ability: unique text"]
+        S["Stats:\nT1: base | T2: ~1.3–1.5x | T3: ~1.6–2.0x"]
+        N --- A --- S
+    end
+```
 
 - Each card has a **unique ability**
 - **Rarity = Tier** — same ability, higher stats
