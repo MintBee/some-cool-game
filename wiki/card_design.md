@@ -19,15 +19,15 @@ flowchart TB
 - **Rarity = Tier** — same ability, higher stats
 - 3 tiers: T1 (Common), T2 (Rare), T3 (Epic)
 
-### Card Pool — 25 Cards
+### Card Pool — 22 Cards
 
 Disrupt (P0):  4 cards
 Shield  (P1):  4 cards
-Buff    (P2):  6 cards  (3 subtypes × 2)
+Buff    (P2):  4 cards  (2 subtypes × 2)
 Strike  (P3):  6 cards
-Nuke    (P4):  5 cards
+Nuke    (P4):  4 cards
                ──
-Total:         25
+Total:         22
 
 ---
 
@@ -57,6 +57,10 @@ Total:         25
 - Absorbs damage directed at HP pool.
 - Wasted if enemy didn't play a damage card in that lane.
 - Does not deal damage.
+- **Stacking (multiple active shields):**
+  - **Additive totals:** Total absorption = Shield A value + Shield B value.
+  - **Damage priority (FIFO):** The earliest-activated shield absorbs incoming damage first; later shields absorb only the remainder.
+  - **Independent expiration:** Each shield is tracked separately and expires at the end of its own duration, regardless of other active shields.
 
 ### 2.4 Buff Rules
 - **No damage** in the buff's own lane (enemy gets a free lane).
@@ -75,7 +79,6 @@ Total:         25
 
 | Subtype         | Trigger Condition                      | Playstyle          |
 | --------------- | -------------------------------------- | ------------------ |
-| **Momentum**    | Won the previous lane                  | Aggro / Snowball   |
 | **Desperation** | HP below a threshold                   | Control / Comeback |
 | **Formation**   | Adjacent lane has a specific card type | Combo / Puzzle     |
 
@@ -99,8 +102,8 @@ Total:         25
 | 3    | **Aegis**   | If overkill, carry leftover shield to next lane        | 5/7/10            |
 | 4    | **Taunt**   | Absorb + forces adjacent enemy lane to also target you | 4/5/7             |
 
-### 3.3 Buff (P2) — 6 Cards
-*(Momentum / Desperation / Formation subtypes — see previous documentation for specific thresholds)*
+### 3.3 Buff (P2) — 4 Cards
+*(Desperation / Formation subtypes — see previous documentation for specific thresholds)*
 
 ### 3.4 Strike (P3) — 6 Cards
 | #    | Name            | Ability                                        | Dmg (T1/T2/T3)           |
@@ -112,11 +115,10 @@ Total:         25
 | 5    | **Riposte**     | Bonus damage if enemy played Disrupt this lane | 3 (+4) / 4 (+5) / 5 (+7) |
 | 6    | **Executioner** | Bonus damage if enemy HP ≤ 10                  | 3 (+4) / 4 (+5) / 5 (+7) |
 
-### 3.5 Nuke (P4) — 5 Cards
-| #    | Name               | Condition                        | Dmg (T1/T2/T3) |
-| ---- | ------------------ | -------------------------------- | -------------- |
-| 1    | **Meteor**         | Enemy played no Shield this lane | 10/13/16       |
-| 2    | **Guillotine**     | Enemy HP ≤ 10                    | 12/15/18       |
-| 3    | **Ambush**         | This card was in Shadow zone     | 9/12/15        |
-| 4    | **Feeding Frenzy** | Won previous lane                | 10/14/18       |
-| 5    | **Despair**        | Your HP < enemy HP               | 11/14/17       |
+### 3.5 Nuke (P4) — 4 Cards
+| #    | Name           | Condition                        | Dmg (T1/T2/T3) |
+| ---- | -------------- | -------------------------------- | -------------- |
+| 1    | **Meteor**     | Enemy played no Shield this lane | 10/13/16       |
+| 2    | **Guillotine** | Enemy HP ≤ 10                    | 12/15/18       |
+| 3    | **Ambush**     | This card was in Shadow zone     | 9/12/15        |
+| 4    | **Despair**    | Your HP < enemy HP               | 11/14/17       |
