@@ -1,6 +1,6 @@
 # Card Battle Game — Design Document v4.0
 
-> **Objective:** Win 10 battles to achieve victory.
+> **Objective:** Win 10 battles (trophies) within a match to achieve victory. All matches are strictly 1:1 — one player versus one player.
 
 ---
 
@@ -20,7 +20,23 @@
 - **Modification:** Insertion and deletion are only allowed at a specific position, shifting the sequence left or right while maintaining a contiguous array.
 
 ### 1.2 Battle Matching
-- Players are matched via a matchmaking algorithm.
+- All matches are **strictly 1:1** — one player versus one player.
+- Rooms support **2, 4, or 6 players** (even numbers only). Odd counts are not
+  permitted because they cannot form complete 1:1 pairings.
+  - 2-player room → 1 simultaneous 1:1 match
+  - 4-player room → 2 simultaneous 1:1 matches
+  - 6-player room → 3 simultaneous 1:1 matches
+- Players join a named room directly — no global matchmaking queue.
+- **The game does not start until all seats in the room are filled.** Players
+  who join early wait in a lobby state; no game actions are accepted until the
+  room reaches its declared capacity.
+- **Player roster is locked at game start.** No player may join or be
+  substituted once the game has begun; the participant list is fixed for the
+  entire match.
+- Within a room, the server pairs players using a **round-robin schedule** —
+  every player faces every other player in turn.
+- **Win condition:** The first player to win **10 battles (trophies)** wins the
+  match. A Double KO awards no trophy to either player for that battle.
 
 ### 1.3 Battle Preparation
 - Each player selects **1 card from reserve** and inserts it at **any position** in their lane sequence.
@@ -188,4 +204,3 @@ PHASE 3 — REINFORCEMENT (Round 10+)
 ### Technical
 - [ ] PvP vs. PvE vs. both
 - [ ] Target engine/framework
-- [ ] Matchmaking algorithm details
