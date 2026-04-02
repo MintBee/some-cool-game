@@ -1,6 +1,6 @@
 # Card Battle Game — Design Document v4.0
 
-> **Objective:** Win 10 battles (trophies) within a match to achieve victory. All matches are strictly 1:1 — one player versus one player.
+> **Objective:** Be the first to accumulate **10 trophies** to achieve victory. Trophies are awarded per round: reduce the enemy HP to 0 OR end the round with higher HP to earn a trophy. All matches are strictly 1:1 — one player versus one player.
 
 ---
 
@@ -35,8 +35,12 @@ flowchart LR
   entire match.
 - Within a room, the server pairs players using a **round-robin schedule** —
   every player faces every other player in turn.
-- **Win condition:** The first player to win **10 battles (trophies)** wins the
-  match. A Double KO awards no trophy to either player for that battle.
+- **Win condition:** The first player to accumulate **10 trophies** wins the match.
+  Trophies are awarded per round:
+  - **KO:** If a player's HP is reduced to 0, their opponent earns a trophy.
+  - **End of round:** If both players survive, the player with **higher HP** earns a trophy.
+  - **Tie / Double KO:** Both reach 0 simultaneously, or both end at equal HP → **no trophy awarded**.
+  - **Shared victory:** If multiple players reach 10 trophies simultaneously → shared victory.
 
 ### 1.3 Battle Preparation
 - Each player selects **1 card from reserve** and inserts it at **any position** in their lane sequence.
@@ -61,8 +65,8 @@ flowchart LR
 | ------------- | --------------------------------------------------- |
 | Lanes         | **7** (Maximum sequence length)                     |
 | HP            | 30 (shared pool per player)                         |
-| Win condition | Reduce enemy HP to 0                                |
-| Double KO     | Both reach 0 simultaneously → **no trophy awarded** |
+| Win condition | Per round: KO opponent (their HP → 0) **or** have higher HP at round end → earn 1 trophy; first to 10 trophies wins the match |
+| Double KO     | Both reach 0 simultaneously → **no trophy awarded**; equal HP at round end → **no trophy awarded** |
 | Deck size     | **9**                                               |
 | Deploy        | **6** (Prep) + **1** (Battle Prep) = **7 max**      |
 | Reserve       | Deck − deployed cards (2 at full deck)              |
@@ -149,7 +153,12 @@ PHASE 3 — REINFORCEMENT (Round 10+)
 
   Each round │ Must upgrade 1 card's tier (T1→T2 or T2→T3)     │ deck = 9
              │ Mandatory — cannot skip                         │
+             │ Free — no resource cost                        │
              │ Deck size frozen, card power increases          │
+
+### 3.4 Card Retention Policy
+
+Deployed cards are **permanently retained**. Playing a card does not consume it — every card in a player's 9-card deck persists across all rounds. Players reuse their full persistent deck each battle.
 
 ### 3.3 Phase Design Rationale
 

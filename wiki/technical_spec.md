@@ -79,7 +79,7 @@ Pure game logic — deterministic, platform-agnostic, no I/O. This is the shared
 | `rules/economy`     | Phase transition logic — which picks/discards/upgrades are legal given the current round                      |
 | `rules/deploy`      | Zone constraints (Frontier before Shadow), contiguous placement, Battle Prep insertion shifting                |
 | `engine/PhaseManager` | State machine: BUILDING → PREP → MATCHING → BATTLE_PREP → BATTLE → RESULT                                  |
-| `engine/MatchManager`  | Multi-battle match envelope — round-robin pairing schedule, win/trophy tracking, lobby-wait enforcement, roster-lock, and match-over condition (first to 10 wins) |
+| `engine/MatchManager`  | Multi-battle match envelope — round-robin pairing schedule, trophy tracking (per-round KO or HP-lead), lobby-wait enforcement, roster-lock, and match-over condition (first player to accumulate 10 trophies) |
 | `engine/Validator`  | Validates any player action against current state — anti-cheat layer when run server-side                     |
 
 **Interface:** Exposes `applyAction(state, action): GameState`, `resolveLane()`, and `applyBattleResult(matchState, result): MatchState`. No side effects, fully testable.
@@ -183,7 +183,7 @@ sequenceDiagram
     end
 ```
 
-The diagram above shows a single battle. A full match consists of repeated battles until one player accumulates 10 wins; between battles `MatchManager` resets `GameState` while preserving `MatchState.wins`. The match does not begin until `MatchState.locked` is true (all seats filled).
+The diagram above shows a single battle. A full match consists of repeated battles until one player accumulates 10 trophies (awarded per round: KO opponent or end with higher HP); between battles `MatchManager` resets `GameState` while preserving `MatchState.wins`. The match does not begin until `MatchState.locked` is true (all seats filled).
 
 ### 4.2 Key Message Types
 
@@ -199,7 +199,7 @@ The diagram above shows a single battle. A full match consists of repeated battl
 | Server → Client | `stateSync`        | Delta-compressed state patch (own full state)                  |
 | Server → Client | `opponentPartial`  | Visibility-filtered opponent board                             |
 | Server → Client | `laneReveal`       | `{ lane, cards: [Card, Card], result: LaneResult }`            |
-| Server → Client | `battleResult`     | `{ winner, hpA, hpB, trophies: [number, number] }`            |
+| Server → Client | `battleResult`     | `{ winner: string \| null, hpA, hpB, trophies: [number, number] }` — `winner` is `null` on Double KO or equal-HP tie |
 
 ### 4.3 Visibility Filtering
 
