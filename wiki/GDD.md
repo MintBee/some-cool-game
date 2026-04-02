@@ -6,10 +6,10 @@
 
 ## 1. Game Flow
 
-┌──────────────┐    ┌────────────────┐    ┌──────────────────┐    ┌──────────────┐
-│  Preparation │ →  │ Battle Matching │ →  │ Battle Preparation│ →  │ Battle Phase │
-│    Phase     │    │   (matchmaker)  │    │   (+1 card each)  │    │ (auto-resolve)│
-└──────────────┘    └────────────────┘    └──────────────────┘    └──────────────┘
+```mermaid
+flowchart LR
+    A["Preparation\nPhase"] --> B["Battle Matching\n(matchmaker)"] --> C["Battle Preparation\n(+1 card each)"] --> D["Battle Phase\n(auto-resolve)"]
+```
 
 ### 1.1 Preparation Phase
 - **Deploy** cards continuously from left to right (no gaps allowed).
@@ -79,16 +79,19 @@ For each lane (left to right):
 
 ### 2.3 Information Zones — Three-Tier Visibility
 
-  FRONTIER          SHADOW              BATTLE PREP
-  ┌──────────┐      ┌──────────┐        ┌──────────┐
-  │ Full ID  │      │ Type     │        │ ???      │
-  │ + Lane   │      │ Label    │        │          │
-  │          │      │ only     │        │ Zero     │
-  │ KNOWN    │      │ PARTIAL  │        │ info     │
-  └──────────┘      └──────────┘        └──────────┘
-  Left side         Right side          Inserted
-
-  ◄── more transparent          more hidden ──►
+```mermaid
+flowchart LR
+    subgraph F["FRONTIER — Left side"]
+        FI["Full ID + Lane\nKNOWN"]
+    end
+    subgraph S["SHADOW — Right side"]
+        SI["Type Label only\nPARTIAL"]
+    end
+    subgraph B["BATTLE PREP — Inserted"]
+        BI["???\nZero info"]
+    end
+    F -->|"more transparent ▶"| S -->|"more hidden ▶"| B
+```
 
 | Zone            | Count | Opponent Sees                                | Hidden                      |
 | --------------- | ----- | -------------------------------------------- | --------------------------- |
