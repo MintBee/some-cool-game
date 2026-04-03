@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx vite:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm approve-builds:*)",
+      "Bash(pnpm config:*)",
+      "Bash(pnpm --filter prototype-dom exec vite build)",
+      "Bash(pnpm --filter prototype-svg exec vite build)",
+      "Bash(pnpm:*)",
+      "Bash(rm -rf sources/)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(cmd.exe /c \"handle64.exe \\\\\"C:\\\\Users\\\\ehddb\\\\projects\\\\game\\\\some-cool-game-impl\\\\sources\\\\\" 2>&1\")",
+      "Bash(powershell.exe:*)"
+    ]
+  }
+}

@@ -11,19 +11,26 @@
 | Layer              | Choice                  | Rationale                                                                  |
 | ------------------ | ----------------------- | -------------------------------------------------------------------------- |
 | **Language**       | TypeScript (strict)     | Shared types between client and server; catches card-logic bugs at compile time |
-| **Rendering**      | PixiJS 8                | Lightweight 2D WebGL renderer; ideal for card animations without Phaser's overhead |
-| **UI Overlay**     | Preact + HTM            | Thin reactive layer for HUD, menus, lobby — renders to DOM above the Pixi canvas |
+| **Rendering**      | SVG + GSAP              | DOM-inspectable vector rendering with timeline animation; swappable via `IRenderAdapter` |
+| **UI Overlay**     | Preact + HTM            | Thin reactive layer for HUD, menus, lobby — renders to DOM alongside the SVG board |
 | **Networking**     | Colyseus 0.15           | Authoritative game rooms, schema-based state sync over WebSocket           |
 | **Server**         | Node.js 20 + Colyseus   | Colyseus runs on Node; no separate HTTP framework needed for game logic    |
 | **Monorepo**       | Turborepo + pnpm        | Three packages: `client`, `server`, `shared` with single `tsconfig` base  |
-| **Build (client)** | Vite 6                  | Fast HMR, native TS, trivial Pixi asset pipeline                          |
+| **Build (client)** | Vite 6                  | Fast HMR, native TS, handles SVG and static assets out of the box         |
 | **Build (server)** | tsx (dev) / tsup (prod) | Fast dev reload; single-file production bundle                             |
 | **Testing**        | Vitest + Playwright     | Unit tests for shared game logic; E2E for full client-server flows         |
 | **Linting**        | Biome                   | Single tool for format + lint; faster than ESLint + Prettier               |
 
-### Why PixiJS over Phaser
+### Why SVG + GSAP over PixiJS
 
-Phaser bundles a physics engine, scene manager, and input system designed for action games. This card game needs none of those — it needs sprite rendering, tweened animations (card flips, slide-ins), and layered containers for zones. PixiJS is roughly 1/3 the bundle size and gives full control over the render loop without fighting a framework.
+PixiJS renders to a `<canvas>` — opaque to DevTools, no DOM inspection, no CSS, and hit-testing requires manual coordinate math. For a card game with 14 cards and lane-by-lane animations, canvas performance headroom is unnecessary. SVG was chosen because:
+
+- **DOM-inspectable** — every card is a `<g>` with `<rect>` + `<text>` children, visible in the Elements panel with live attribute editing
+- **`viewBox` auto-scaling** — one `viewBox="0 0 1400 700"` declaration scales the entire board to any screen size with zero media queries
+- **Single coordinate space** — all cards and effects share one coordinate system; cross-card animations (projectiles, beams between lanes) are trivial
+- **GSAP timeline** — GSAP's `timeline()` sequencing maps directly to the lane-by-lane reveal pattern; `attr: {}` animates SVG attributes (stroke, r, opacity) natively
+
+The rendering layer is abstracted behind `IRenderAdapter` (see §2.2), so PixiJS can be swapped in later if performance requirements grow (e.g., particle-heavy effects, 60fps animation of 50+ simultaneous sprites).
 
 ### Why Colyseus over raw WebSocket
 
@@ -39,7 +46,14 @@ Three core modules with clean interfaces between them. Any layer can be swapped 
 
 ```mermaid
 flowchart LR
-    UI["UI"]
+    subgraph UI["Module 1: UI"]
+        VM["ViewModel"]
+        RA["IRenderAdapter"]
+        SVG["SVG + GSAP\n(default)"]
+        HUD["Preact HUD"]
+        VM --> RA
+        RA --> SVG
+    end
     Core["Core Game Engine"]
     Net["Network"]
     UI -->|"player actions"| Core
@@ -52,19 +66,48 @@ flowchart LR
 - **Core → Network:** "Validated action, broadcast to opponent" (via adapter)
 - **Network → Core:** "Opponent deployed card Y" (incoming action)
 - **Core → UI:** "State updated, re-render" (new GameState)
+- **ViewModel → IRenderAdapter:** "Board state changed, here's the new snapshot" (renderer-agnostic)
 
 ### 2.2 Module 1: UI
 
-Responsible for rendering, input, and presentation. Knows nothing about networking.
+Responsible for rendering, input, and presentation. Knows nothing about networking. The rendering layer is abstracted behind `IRenderAdapter` so it can be swapped between SVG, DOM, or PixiJS without affecting game logic, networking, or HUD components.
 
-| Sub-module         | Responsibility                                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------------- |
-| `scenes/`          | Pixi containers: PrepScene, BattleScene, DraftScene — one active at a time                        |
-| `rendering/`       | CardSprite (3 visual states: hidden / type-only / full), Animator (card flips, lane reveals, FX)   |
-| `components/`      | Preact HUD overlay — HP bar, round counter, phase indicator, card tooltips, menus                  |
-| `state/ViewModel`  | Derives displayable state from the Core Engine's GameState, respecting visibility zone rules       |
+| Sub-module              | Responsibility                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `renderer/interface.ts` | `IRenderAdapter` — the contract every renderer implements (see below)                             |
+| `renderer/svg/`         | **Default.** SVG + GSAP implementation: Board (`<svg viewBox>`), Card (`<g>` groups), Animator (GSAP timelines), Effects (per-card VFX via `createElementNS`) |
+| `components/`           | Preact HUD overlay — HP bar, round counter, phase indicator, card tooltips, menus                 |
+| `state/ViewModel`       | Derives displayable state from the Core Engine's GameState, respecting visibility zone rules      |
 
 **Interface:** Consumes `GameState` (read-only) from Core Engine; emits player actions (`deployCard`, `pickCard`, `ready`, etc.) as intents.
+
+#### IRenderAdapter
+
+The boundary between renderer-agnostic code (ViewModel, HUD) and renderer-specific code (SVG elements, GSAP animations). Swapping renderer = new implementation of this interface; zero changes to Core, Network, or HUD.
+
+```typescript
+interface IRenderAdapter {
+  /** Mount the renderer into a DOM container */
+  mount(container: HTMLElement): void;
+
+  /** Re-render the board from the current ViewModel snapshot */
+  updateBoard(viewModel: BoardViewModel): void;
+
+  /** Animate a card being deployed to a slot */
+  playDeploy(slot: number, card: CardView): Promise<void>;
+
+  /** Animate a lane reveal (flip + resolution) */
+  playLaneReveal(lane: number, result: LaneResultView): Promise<void>;
+
+  /** Play the card-identity-specific resolution effect */
+  playResolutionEffect(lane: number, winner: CardView): Promise<void>;
+
+  /** Tear down the renderer and clean up resources */
+  destroy(): void;
+}
+```
+
+`ViewModel` computes *what* to show (visibility filtering, winner, HP deltas). The renderer decides *how* to draw and animate it. This keeps game logic and presentation fully decoupled.
 
 ### 2.3 Module 2: Core Game Engine
 
@@ -277,7 +320,7 @@ flowchart TD
     packages["packages/"]
     shared["shared/\n← Module 2: Core Game Engine\npure TS, no deps"]
     server["server/\n← Module 3 server-side\nColyseus adapter + BattleRoom"]
-    client["client/\n← Module 1: UI\n+ Module 3 client-side network adapter"]
+    client["client/\n← Module 1: UI (IRenderAdapter → SVG+GSAP)\n+ Module 3 client-side network adapter"]
     turbo["turbo.json\n← pipeline: shared → server/client in parallel"]
     pkgjson["package.json\n← workspace root"]
     wiki["wiki/\n← design & technical docs"]
@@ -302,11 +345,12 @@ flowchart TD
 
 ## 7. Open Technical Decisions
 
-| Decision                  | Options                                | Recommendation                                                            |
+| Decision                  | Options                                | Status / Recommendation                                                   |
 | ------------------------- | -------------------------------------- | ------------------------------------------------------------------------- |
-| Animation library         | gsap, @pixi/animate, custom tweens     | gsap — proven, timeline sequencing fits poker-style lane reveals           |
+| Rendering engine          | PixiJS 8, SVG + GSAP, DOM + GSAP      | **Decided:** SVG + GSAP — DOM-inspectable, `viewBox` scaling, single coordinate space. PixiJS available as future upgrade via `IRenderAdapter` if performance requires it |
+| Animation library         | gsap, @pixi/animate, custom tweens     | **Decided:** GSAP — confirmed by prototype; timeline sequencing fits lane-by-lane reveals |
 | Persistent storage        | None (MVP), PostgreSQL, SQLite         | None for MVP; add PostgreSQL via Drizzle ORM when accounts needed          |
 | Reconnection window       | Colyseus default, custom               | 60s grace period; opponent sees "reconnecting..."                         |
 | Turn timer duration       | Fixed vs. configurable                 | 30s prep phase, 15s battle prep; configurable in `shared/config`          |
-| Asset pipeline            | Sprite sheets vs. individual PNGs      | TexturePacker → sprite sheets loaded via Pixi Assets                      |
-| Card art (placeholder)    | Colored shapes, text-only              | Colored geometric shapes as T1 placeholder art                            |
+| Asset pipeline            | Inline SVG, external images, sprite sheets | Inline SVG paths for card icons; external images loaded directly for future card art. No sprite sheet tooling needed with SVG renderer |
+| Card art (placeholder)    | Colored shapes, text-only              | **Decided:** Inline SVG icons per card identity (geometric, type-colored) |
