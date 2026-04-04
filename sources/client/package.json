@@ -1,0 +1,24 @@
+{
+	"name": "@game/client",
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"dev": "vite",
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"dependencies": {
+		"@game/shared": "workspace:*",
+		"gsap": "^3.12.0",
+		"htm": "^3.1.0",
+		"preact": "^10.25.0"
+	},
+	"devDependencies": {
+		"@preact/preset-vite": "^2.9.0",
+		"jsdom": "^29.0.1",
+		"typescript": "^5.7.0",
+		"vite": "^6.0.0",
+		"vitest": "^3.0.0"
+	}
+}

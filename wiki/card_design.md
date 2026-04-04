@@ -103,7 +103,26 @@ Total:         22
 | 4    | **Taunt**   | Absorb + forces adjacent enemy lane to also target you | 4/5/7             |
 
 ### 3.3 Buff (P2) — 4 Cards
-*(Desperation / Formation subtypes — see previous documentation for specific thresholds)*
+
+**Desperation Subtype** (trigger: your HP ≤ threshold)
+
+| #    | Name           | Ability                                                        | Condition         | Buff% (T1/T2/T3)       |
+| ---- | -------------- | -------------------------------------------------------------- | ----------------- | ----------------------- |
+| 1    | **Rally**      | Boost damage of all subsequent allied Strike/Nuke cards        | Your HP ≤ 15      | +25/+35/+50% damage    |
+| 2    | **Last Stand** | Grant shield to all subsequent allied cards (absorbs per card) | Your HP ≤ 10      | 3/4/6 absorb per card  |
+
+**Formation Subtype** (trigger: adjacent lane has specific card type)
+
+| #    | Name           | Ability                                                              | Condition                       | Buff% (T1/T2/T3)       |
+| ---- | -------------- | -------------------------------------------------------------------- | ------------------------------- | ----------------------- |
+| 3    | **War Drum**   | Boost damage of all subsequent allied Strike cards                   | Adjacent lane has a Strike card | +30/+40/+55% damage    |
+| 4    | **Vanguard**   | Boost absorption of all subsequent allied Shield cards               | Adjacent lane has a Shield card | +25/+35/+50% absorb    |
+
+**Buff rules reminder:**
+- No damage in the buff's own lane (enemy gets a free lane).
+- Cross-lane: effects apply to cards in **subsequent** (higher-numbered) lanes only.
+- **Fragile:** If the buff card takes damage in its own lane, the buff is broken and has no effect.
+- **Failed condition = dead card:** If the subtype condition is not met, the buff does nothing.
 
 ### 3.4 Strike (P3) — 6 Cards
 | #    | Name            | Ability                                        | Dmg (T1/T2/T3)           |
