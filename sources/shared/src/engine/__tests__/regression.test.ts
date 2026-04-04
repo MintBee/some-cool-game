@@ -121,6 +121,40 @@ describe("Regression: trophy awarding after battle", () => {
 	});
 });
 
+/**
+ * Regression: createInitialGameState must accept and apply existingTrophies.
+ *
+ * Previously, trophies were always initialized to 0, so trophy counts from
+ * MatchState.wins were lost every time a new round started.
+ */
+describe("Regression: createInitialGameState preserves trophy counts", () => {
+	it("passes existingTrophies into PlayerState", () => {
+		const state = createInitialGameState("alice", "bob", 3, undefined, [4, 2]);
+		expect(state.players[0].trophies).toBe(4);
+		expect(state.players[1].trophies).toBe(2);
+	});
+
+	it("defaults to zero when existingTrophies is omitted", () => {
+		const state = createInitialGameState("alice", "bob", 1);
+		expect(state.players[0].trophies).toBe(0);
+		expect(state.players[1].trophies).toBe(0);
+	});
+
+	it("trophies survive through a full battle cycle", () => {
+		const state = setupAndBattle(
+			["slash", "barrier", "meteor"],
+			["pierce", "reflect", "sabotage"],
+			1,
+			undefined,
+			[5, 3],
+		);
+
+		// Trophies must not be reset by battle resolution or phase transitions
+		expect(state.players[0].trophies).toBe(5);
+		expect(state.players[1].trophies).toBe(3);
+	});
+});
+
 describe("Regression: Result phase and round transition", () => {
 	it("battle advances to Result phase", () => {
 		const state = setupAndBattle(["slash", "barrier", "meteor"], ["pierce", "reflect", "sabotage"]);

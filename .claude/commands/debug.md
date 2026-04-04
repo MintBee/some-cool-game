@@ -99,14 +99,18 @@ Example:
 
 ---
 
-## Phase 6 — Write Regression Tests at the Invariant Level
+## Phase 6 — Write Regression Tests (MANDATORY)
 
-Don't test the fix itself — test the **game rule** the fix restores.
+**Every bug fix MUST include at least one regression test.** Do not consider the fix complete until tests are written and passing. This is not optional.
+
+### What to test
+
+Test the **game rule / invariant** the fix restores, not the implementation detail.
 
 **Good regression test (tests the invariant):**
 ```typescript
-it("battle with asymmetric damage yields different HP", () => {
-  // Verifies the precondition for trophy logic — not "MockGame awards trophies"
+it("startBattle propagates accumulated match wins into GameState", () => {
+  // Verifies the data path end-to-end — not "function X calls function Y"
 });
 ```
 
@@ -117,9 +121,23 @@ it("handleBattle() calls applyBattleResult()", () => {
 });
 ```
 
-Test files:
+### Where to put tests
+
 - Engine invariants: `sources/shared/src/engine/__tests__/regression.test.ts`
 - ViewModel derivation: `sources/client/src/state/__tests__/ViewModel.test.ts`
+- Module-specific bugs: add a `describe("Regression: ...")` block in the relevant test file
+
+### How many tests
+
+- **Minimum:** 1 test that reproduces the exact bug scenario (would have failed before the fix)
+- **Recommended:** Also test boundary cases — e.g., if trophies weren't propagated, test zero trophies (default), nonzero trophies (the bug), and trophies surviving through a full cycle
+
+### Checklist
+
+- [ ] At least one test that **would have failed** before the fix
+- [ ] Tests are at the invariant level, not implementation level
+- [ ] Tests pass: `pnpm test`
+- [ ] Test description includes "Regression:" prefix for traceability
 
 ---
 

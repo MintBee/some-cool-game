@@ -93,7 +93,11 @@ export class HostEngine {
 		const existingDecks: [Card[], Card[]] | undefined =
 			deckA.length > 0 || deckB.length > 0 ? [deckA, deckB] : undefined;
 
-		this.gameState = createInitialGameState(playerA, playerB, this.round, existingDecks);
+		const trophies: [number, number] = [
+			this.matchState.wins[playerA] ?? 0,
+			this.matchState.wins[playerB] ?? 0,
+		];
+		this.gameState = createInitialGameState(playerA, playerB, this.round, existingDecks, trophies);
 
 		// Start building phase — generate draft choices
 		this.runBuildingPhase();
@@ -304,7 +308,19 @@ export class HostEngine {
 
 		const [playerA, playerB] = [this.gameState.players[0], this.gameState.players[1]];
 
-		// Send battle result
+		// Persist decks for next round
+		this.playerDecks.set(playerA.id, playerA.deck);
+		this.playerDecks.set(playerB.id, playerB.deck);
+
+		// Update match state first so trophy counts include this round's result
+		this.matchState = applyBattleResult(this.matchState, {
+			hpA: playerA.hp,
+			hpB: playerB.hp,
+			playerAId: playerA.id,
+			playerBId: playerB.id,
+		});
+
+		// Send battle result with updated trophy counts
 		const resultMsg: GameMessage = {
 			type: "battleResult",
 			winner: playerA.hp > playerB.hp ? playerA.id : playerB.hp > playerA.hp ? playerB.id : null,
@@ -313,18 +329,6 @@ export class HostEngine {
 			trophies: [this.matchState.wins[playerA.id] ?? 0, this.matchState.wins[playerB.id] ?? 0],
 		};
 		this.broadcastMessage(resultMsg);
-
-		// Persist decks for next round
-		this.playerDecks.set(playerA.id, playerA.deck);
-		this.playerDecks.set(playerB.id, playerB.deck);
-
-		// Update match state
-		this.matchState = applyBattleResult(this.matchState, {
-			hpA: playerA.hp,
-			hpB: playerB.hp,
-			playerAId: playerA.id,
-			playerBId: playerB.id,
-		});
 
 		if (!this.matchState.matchOver) {
 			this.round++;

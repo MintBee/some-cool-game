@@ -31,7 +31,8 @@ export function startBattle(
 	existingDecks?: [Card[], Card[]],
 ): MatchState {
 	const [playerA, playerB] = getCurrentPairing(match);
-	const battle = createInitialGameState(playerA, playerB, round, existingDecks);
+	const trophies: [number, number] = [match.wins[playerA] ?? 0, match.wins[playerB] ?? 0];
+	const battle = createInitialGameState(playerA, playerB, round, existingDecks, trophies);
 	return { ...match, currentBattle: battle };
 }
 

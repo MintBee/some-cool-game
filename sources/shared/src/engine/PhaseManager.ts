@@ -14,14 +14,15 @@ export function createInitialGameState(
 	playerBId: string,
 	round: number,
 	existingDecks?: [Card[], Card[]],
+	existingTrophies?: [number, number],
 ): GameState {
 	const limits = getDeployLimits(round);
 	const maxSlots = limits.frontier + limits.shadow + limits.battlePrep;
 
-	const createPlayer = (id: string, deck: Card[]): PlayerState => ({
+	const createPlayer = (id: string, deck: Card[], trophies: number): PlayerState => ({
 		id,
 		hp: STARTING_HP,
-		trophies: 0,
+		trophies,
 		deck,
 		deployed: Array(maxSlots).fill(null),
 		reserve: [...deck],
@@ -33,8 +34,8 @@ export function createInitialGameState(
 		phase: Phase.Building,
 		round,
 		players: [
-			createPlayer(playerAId, existingDecks?.[0] ?? []),
-			createPlayer(playerBId, existingDecks?.[1] ?? []),
+			createPlayer(playerAId, existingDecks?.[0] ?? [], existingTrophies?.[0] ?? 0),
+			createPlayer(playerBId, existingDecks?.[1] ?? [], existingTrophies?.[1] ?? 0),
 		],
 		lanes: createLanes(LANE_COUNT),
 		timers: { phaseEnd: 0 },

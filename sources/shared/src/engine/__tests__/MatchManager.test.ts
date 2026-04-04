@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { TROPHIES_TO_WIN } from "../../config.js";
-import { applyBattleResult, createMatch, getCurrentPairing, lockMatch } from "../MatchManager.js";
+import {
+	applyBattleResult,
+	createMatch,
+	getCurrentPairing,
+	lockMatch,
+	startBattle,
+} from "../MatchManager.js";
 
 describe("MatchManager", () => {
 	it("creates a match with zero wins", () => {
@@ -94,5 +100,55 @@ describe("MatchManager", () => {
 		// Every player should face every other player
 		const pairSet = new Set(match.pairingSchedule.map(([a, b]) => [a, b].sort().join("-")));
 		expect(pairSet.size).toBe(6); // C(4,2) = 6 unique pairings
+	});
+});
+
+/**
+ * Regression: startBattle must propagate accumulated trophies from MatchState.wins
+ * into the new GameState.players[].trophies so the UI can display them.
+ *
+ * Previously, createInitialGameState always set trophies: 0, ignoring match wins.
+ */
+describe("Regression: startBattle propagates trophy counts", () => {
+	it("new battle GameState reflects accumulated match wins", () => {
+		let match = lockMatch(createMatch("test-1", ["alice", "bob"]));
+
+		// Simulate 3 wins for alice, 1 for bob
+		for (let i = 0; i < 3; i++) {
+			match = applyBattleResult(match, {
+				hpA: 20,
+				hpB: 0,
+				playerAId: "alice",
+				playerBId: "bob",
+			});
+		}
+		match = applyBattleResult(match, {
+			hpA: 0,
+			hpB: 20,
+			playerAId: "alice",
+			playerBId: "bob",
+		});
+
+		expect(match.wins.alice).toBe(3);
+		expect(match.wins.bob).toBe(1);
+
+		// Start a new battle — trophies must carry over
+		const withBattle = startBattle(match, 5);
+		const battle = withBattle.currentBattle!;
+		expect(battle).not.toBeNull();
+
+		const playerA = battle.players.find((p) => p.id === "alice")!;
+		const playerB = battle.players.find((p) => p.id === "bob")!;
+		expect(playerA.trophies).toBe(3);
+		expect(playerB.trophies).toBe(1);
+	});
+
+	it("first battle starts with zero trophies", () => {
+		const match = lockMatch(createMatch("test-1", ["alice", "bob"]));
+		const withBattle = startBattle(match, 1);
+		const battle = withBattle.currentBattle!;
+
+		expect(battle.players[0].trophies).toBe(0);
+		expect(battle.players[1].trophies).toBe(0);
 	});
 });
